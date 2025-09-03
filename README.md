@@ -1,7 +1,9 @@
 
 # RustDeskPro Deployment Scripts for Windows
 
-**Enterprise-grade PowerShell deployment automation for RustDeskPro and custom-branded MSI packages**
+Enterprise-grade PowerShell deployment automation for RustDeskPro and custom-branded MSI packages
+
+Take a look at my script and guide for installing RustDesk Server Pro with websockets (WSS), its called [RustDeskPro-WSS](https://github.com/tommyvange/RustDeskPro-WSS).
 
 ---
 
