@@ -1,7 +1,7 @@
 
-# RustDesk Deployment Scripts for Windows
+# RustDeskPro Deployment Scripts for Windows
 
-**Enterprise-grade PowerShell deployment automation for RustDesk and custom-branded MSI packages**
+**Enterprise-grade PowerShell deployment automation for RustDeskPro and custom-branded MSI packages**
 
 ---
 
@@ -234,39 +234,6 @@ Defines the device group and address books to assign after installation. Support
 {
     "group": "IT Support",
     "addressBooks": []
-}
-```
-
-**Norwegian Organization Example:**
-```json
-{
-    "group": "Hovedkontor",
-    "addressBooks": [
-        {
-            "addressBook": "Ansatte",
-            "alias": "Alle Ansatte",
-            "tags": [
-                {
-                    "tag": "Bærbar PC"
-                },
-                {
-                    "tag": "Stasjonær PC"
-                }
-            ]
-        },
-        {
-            "addressBook": "Eksterne Partnere",
-            "alias": "Leverandører",
-            "tags": [
-                {
-                    "tag": "Konsulenter"
-                },
-                {
-                    "tag": "Underleverandører"
-                }
-            ]
-        }
-    ]
 }
 ```
 
