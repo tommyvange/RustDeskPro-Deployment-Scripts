@@ -29,7 +29,20 @@ param(
     
     [Parameter()]
     [ValidateSet("true", "false")]
-    [string]$LOGGING
+    [string]$LOGGING,
+    
+    [Parameter()]
+    [ValidateSet("true", "false")]
+    [string]$ASSIGN,
+    
+    [Parameter()]
+    [string]$TOKEN,
+    
+    [Parameter()]
+    [string]$CUSTOMNAME,
+    
+    [Parameter()]
+    [string]$ASSIGNMENTFILE
 )
 
 # Initialize variables
@@ -130,6 +143,10 @@ try {
     if (!$MSIPATH -and $config.MSIPATH) { $MSIPATH = $config.MSIPATH }
     if (!$UPGRADE -and $config.UPGRADE) { $UPGRADE = $config.UPGRADE }
     if (!$LOGGING -and $config.LOGGING) { $LOGGING = $config.LOGGING }
+    if (!$ASSIGN -and $config.ASSIGN) { $ASSIGN = $config.ASSIGN }
+    if (!$TOKEN -and $config.TOKEN) { $TOKEN = $config.TOKEN }
+    if (!$CUSTOMNAME -and $config.CUSTOMNAME) { $CUSTOMNAME = $config.CUSTOMNAME }
+    if (!$ASSIGNMENTFILE -and $config.ASSIGNMENTFILE) { $ASSIGNMENTFILE = $config.ASSIGNMENTFILE }
 
     # Set defaults
     if (!$MSIPATH) {
@@ -163,6 +180,7 @@ try {
     Validate-BooleanParameter $SILENT "SILENT"
     Validate-BooleanParameter $UPGRADE "UPGRADE"
     Validate-BooleanParameter $LOGGING "LOGGING"
+    Validate-BooleanParameter $ASSIGN "ASSIGN"
 
     # Build MSI command
     $msiArgs = @("/i", "`"$MSIPATH`"")
@@ -242,6 +260,65 @@ try {
                 Write-LogMessage "Installation failed with exit code: $exitCode" -Level ERROR
             }
         }
+    }
+
+    # Run assignment script if ASSIGN is true and installation was successful
+    if ($ASSIGN -eq "true" -and ($exitCode -eq 0 -or $exitCode -eq 3010)) {
+        Write-Host ""
+        Write-ColorOutput "====================================" -Color Cyan
+        Write-LogMessage "Running assignment script..."
+        
+        # Check if TOKEN is provided
+        if (!$TOKEN) {
+            Write-LogMessage "ASSIGN is set to true but TOKEN is not provided. Skipping assignments." -Level WARNING
+        } else {
+            # Build assignment script path
+            $assignScriptPath = Join-Path $PSScriptRoot "assign.ps1"
+            
+            if (!(Test-Path $assignScriptPath)) {
+                Write-LogMessage "Assignment script not found: $assignScriptPath" -Level WARNING
+            } else {
+                # Build assignment arguments
+                $assignArgs = @(
+                    "-ExecutionPolicy", "Bypass",
+                    "-File", "`"$assignScriptPath`"",
+                    "-TOKEN", "`"$TOKEN`""
+                )
+                
+                if ($CUSTOMNAME) {
+                    $assignArgs += "-CUSTOMNAME", "`"$CUSTOMNAME`""
+                }
+                
+                if ($INSTALLFOLDER) {
+                    $assignArgs += "-INSTALLFOLDER", "`"$INSTALLFOLDER`""
+                }
+                
+                if ($LOGGING) {
+                    $assignArgs += "-LOGGING", "`"$LOGGING`""
+                }
+                
+                if ($ASSIGNMENTFILE) {
+                    $assignArgs += "-ASSIGNMENTFILE", "`"$ASSIGNMENTFILE`""
+                }
+                
+                Write-LogMessage "Executing assignment script..."
+                
+                # Wait a moment for the installation to fully complete
+                Start-Sleep -Seconds 2
+                
+                # Execute assignment script
+                $assignProcess = Start-Process -FilePath "powershell.exe" -ArgumentList $assignArgs -Wait -PassThru -NoNewWindow
+                
+                if ($assignProcess.ExitCode -eq 0) {
+                    Write-LogMessage "Assignment script completed successfully" -Level SUCCESS
+                } else {
+                    Write-LogMessage "Assignment script completed with warnings or errors (Exit Code: $($assignProcess.ExitCode))" -Level WARNING
+                    # Don't override the main exit code if installation was successful
+                }
+            }
+        }
+    } elseif ($ASSIGN -eq "true" -and $exitCode -ne 0 -and $exitCode -ne 3010) {
+        Write-LogMessage "Skipping assignments due to installation failure" -Level WARNING
     }
 
 } catch {
