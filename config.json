@@ -1,0 +1,17 @@
+# This is an example config.json, change it according to your needs.
+#    (also remove these comments as it makes the JSON invalid)
+
+{
+    "INSTALLFOLDER": "",
+    "CREATESTARTMENUSHORTCUTS": "true",
+    "CREATEDESKTOPSHORTCUTS": "false",
+    "INSTALLPRINTER": "false",
+    "SILENT": "true",
+    "MSIPATH": "",
+    "UPGRADE": "false",
+    "LOGGING": "true",
+    "ASSIGN": "false",
+    "TOKEN": "",
+    "CUSTOMNAME": "",
+    "ASSIGNMENTFILE": ""
+}
