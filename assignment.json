@@ -1,0 +1,31 @@
+{
+    "group": "IT Department",
+    "addressBooks": [
+        {
+            "addressBook": "Corporate Directory",
+            "alias": "Company Contacts",
+            "tags": [
+                {
+                    "tag": "Executives"
+                },
+                {
+                    "tag": "Managers"
+                },
+                {
+                    "tag": "Staff"
+                }
+            ]
+        },
+        {
+            "addressBook": "External Partners",
+            "tags": [
+                {
+                    "tag": "Vendors"
+                }
+            ]
+        },
+        {
+            "addressBook": "Support Teams"
+        }
+    ]
+}
