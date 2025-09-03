@@ -46,7 +46,7 @@ function Write-LogMessage {
     $logMessage = "[$timestamp] [$Level] $Message"
     
     if ($enableLogging) {
-        Add-Content -Path $logFile -Value $logMessage -Force
+        Add-Content -Path $logFile -Value $logMessage -Force -Encoding UTF8
     }
     
     switch ($Level) {
@@ -129,23 +129,49 @@ function Invoke-RustDeskAssignment {
     )
     
     try {
-        # Build command arguments
-        $args = @("--assign", "--token", $Token)
+        # Build command arguments - properly escape values with quotes
+        $args = @("--assign", "--token", "`"$Token`"")
         
         foreach ($key in $Parameters.Keys) {
             $args += "--$key"
-            $args += $Parameters[$key]
+            # Always quote parameter values to handle spaces and special characters
+            $args += "`"$($Parameters[$key])`""
         }
         
         Write-LogMessage "Executing: $Description"
-        Write-LogMessage "Command: `"$ExePath`" $($args -join ' ')" 
         
-        # Execute with output capture
-        $process = Start-Process -FilePath $ExePath -ArgumentList $args -Wait -PassThru -NoNewWindow -RedirectStandardOutput "$env:TEMP\rustdesk_output.txt" -RedirectStandardError "$env:TEMP\rustdesk_error.txt"
+        # Build the full command string for logging (but mask the token)
+        $logCommand = "`"$ExePath`" --assign --token [HIDDEN]"
+        foreach ($key in $Parameters.Keys) {
+            $logCommand += " --$key `"$($Parameters[$key])`""
+        }
+        Write-LogMessage "Command: $logCommand"
         
-        # Read output
-        $output = Get-Content "$env:TEMP\rustdesk_output.txt" -ErrorAction SilentlyContinue
-        $errorOutput = Get-Content "$env:TEMP\rustdesk_error.txt" -ErrorAction SilentlyContinue
+        # Create a temporary batch file to handle complex arguments with UTF-8 encoding
+        $tempBatch = [System.IO.Path]::GetTempFileName() + ".cmd"
+        
+        # Build batch content with UTF-8 support
+        $batchContent = "@echo off`r`n"
+        $batchContent += "chcp 65001 >nul 2>&1`r`n"  # Set code page to UTF-8
+        $batchContent += "`"$ExePath`" "
+        $batchContent += "--assign --token `"$Token`" "
+        foreach ($key in $Parameters.Keys) {
+            $batchContent += "--$key `"$($Parameters[$key])`" "
+        }
+        
+        # Write batch file with UTF-8 encoding (without BOM)
+        $utf8NoBom = New-Object System.Text.UTF8Encoding $false
+        [System.IO.File]::WriteAllText($tempBatch, $batchContent, $utf8NoBom)
+        
+        # Execute via cmd.exe with UTF-8 code page
+        $process = Start-Process -FilePath "cmd.exe" -ArgumentList "/c chcp 65001 >nul && `"$tempBatch`"" -Wait -PassThru -NoNewWindow -RedirectStandardOutput "$env:TEMP\rustdesk_output.txt" -RedirectStandardError "$env:TEMP\rustdesk_error.txt"
+        
+        # Clean up temp batch file
+        Remove-Item $tempBatch -Force -ErrorAction SilentlyContinue
+        
+        # Read output with UTF-8 encoding
+        $output = Get-Content "$env:TEMP\rustdesk_output.txt" -Encoding UTF8 -ErrorAction SilentlyContinue
+        $errorOutput = Get-Content "$env:TEMP\rustdesk_error.txt" -Encoding UTF8 -ErrorAction SilentlyContinue
         
         # Clean up temp files
         Remove-Item "$env:TEMP\rustdesk_output.txt" -Force -ErrorAction SilentlyContinue
@@ -173,6 +199,9 @@ function Invoke-RustDeskAssignment {
 }
 
 try {
+    # Set console output encoding to UTF-8
+    [Console]::OutputEncoding = [System.Text.Encoding]::UTF8
+    
     Write-ColorOutput "====================================" -Color Cyan
     Write-ColorOutput "   RustDesk Assignment Script       " -Color Cyan
     Write-ColorOutput "====================================" -Color Cyan
@@ -189,7 +218,7 @@ try {
     
     if (Test-Path $configPath) {
         try {
-            $config = Get-Content $configPath -Raw | ConvertFrom-Json
+            $config = Get-Content $configPath -Raw -Encoding UTF8 | ConvertFrom-Json
             Write-LogMessage "Loaded configuration from config.json"
         } catch {
             Write-LogMessage "Failed to load config.json: $_" -Level WARNING
@@ -214,6 +243,7 @@ try {
     
     if ($enableLogging) {
         Write-LogMessage "Logging enabled. Log file: $logFile"
+        Write-LogMessage "Console encoding: $([Console]::OutputEncoding.EncodingName)"
     }
 
     # Validate boolean parameters
@@ -238,14 +268,15 @@ try {
 
     Write-LogMessage "Found RustDesk at: $rustDeskPath" -Level SUCCESS
 
-    # Load assignment file
+    # Load assignment file with UTF-8 encoding
     if (!(Test-Path $ASSIGNMENTFILE)) {
         Write-LogMessage "Assignment file not found: $ASSIGNMENTFILE" -Level ERROR
         exit 1603
     }
 
     try {
-        $assignments = Get-Content $ASSIGNMENTFILE -Raw | ConvertFrom-Json
+        $assignmentContent = Get-Content $ASSIGNMENTFILE -Raw -Encoding UTF8
+        $assignments = $assignmentContent | ConvertFrom-Json
         Write-LogMessage "Loaded assignments from: $ASSIGNMENTFILE" -Level SUCCESS
     } catch {
         Write-LogMessage "Failed to parse assignment file: $_" -Level ERROR
@@ -254,14 +285,14 @@ try {
 
     # Initialize counters
     $totalAssignments = 0
-    $groupCount = 0
+    $hasGroup = $false
     $addressBookCount = 0
     $tagCount = 0
 
     # Count total assignments
-    if ($assignments.groups) {
-        $groupCount = $assignments.groups.Count
-        $totalAssignments += $groupCount
+    if ($assignments.group -and $assignments.group.Trim() -ne "") {
+        $hasGroup = $true
+        $totalAssignments++
     }
     
     if ($assignments.addressBooks) {
@@ -275,7 +306,7 @@ try {
         }
     }
 
-    Write-LogMessage "Found assignments: $groupCount groups, $addressBookCount address books, $tagCount tags"
+    Write-LogMessage "Found assignments: $(if ($hasGroup) {'1 group'} else {'no group'}), $addressBookCount address books, $tagCount tags"
 
     if ($totalAssignments -eq 0) {
         Write-LogMessage "No assignments found in configuration file" -Level WARNING
@@ -286,32 +317,28 @@ try {
     Write-ColorOutput "Starting assignments..." -Color Yellow
     Write-Host ""
 
-    # Process Groups
-    if ($assignments.groups -and $assignments.groups.Count -gt 0) {
-        Write-ColorOutput "=== Processing Groups ===" -Color Cyan
+    # Process Group (single group only)
+    if ($hasGroup) {
+        Write-ColorOutput "=== Processing Group ===" -Color Cyan
         Write-Host ""
         
-        foreach ($groupObj in $assignments.groups) {
-            if ($groupObj.group) {
-                $params = @{
-                    "device_group_name" = $groupObj.group
-                }
-                
-                $success = Invoke-RustDeskAssignment `
-                    -ExePath $rustDeskPath `
-                    -Token $TOKEN `
-                    -Parameters $params `
-                    -Description "Group: $($groupObj.group)"
-                
-                if ($success) {
-                    $successCount++
-                } else {
-                    $failureCount++
-                }
-                
-                Start-Sleep -Milliseconds 500  # Small delay between API calls
-            }
+        $params = @{
+            "device_group_name" = $assignments.group
         }
+        
+        $success = Invoke-RustDeskAssignment `
+            -ExePath $rustDeskPath `
+            -Token $TOKEN `
+            -Parameters $params `
+            -Description "Group: $($assignments.group)"
+        
+        if ($success) {
+            $successCount++
+        } else {
+            $failureCount++
+        }
+        
+        Start-Sleep -Milliseconds 500
         Write-Host ""
     }
 
@@ -322,16 +349,18 @@ try {
         
         foreach ($addressBookObj in $assignments.addressBooks) {
             if ($addressBookObj.addressBook) {
-                # First, assign the address book without tags
+                # First, assign the address book without tags or alias
                 $params = @{
                     "address_book_name" = $addressBookObj.addressBook
                 }
+                
+                $description = "Address Book: $($addressBookObj.addressBook)"
                 
                 $success = Invoke-RustDeskAssignment `
                     -ExePath $rustDeskPath `
                     -Token $TOKEN `
                     -Parameters $params `
-                    -Description "Address Book: $($addressBookObj.addressBook)"
+                    -Description $description
                 
                 if ($success) {
                     $successCount++
@@ -340,6 +369,30 @@ try {
                 }
                 
                 Start-Sleep -Milliseconds 500
+                
+                # If alias is provided, assign it in a separate call
+                if ($addressBookObj.alias -and $addressBookObj.alias.Trim() -ne "") {
+                    Write-LogMessage "Setting alias for address book: $($addressBookObj.addressBook)"
+                    
+                    $params = @{
+                        "address_book_name" = $addressBookObj.addressBook
+                        "address_book_alias" = $addressBookObj.alias
+                    }
+                    
+                    $success = Invoke-RustDeskAssignment `
+                        -ExePath $rustDeskPath `
+                        -Token $TOKEN `
+                        -Parameters $params `
+                        -Description "Setting Alias '$($addressBookObj.alias)' for Address Book: $($addressBookObj.addressBook)"
+                    
+                    if ($success) {
+                        Write-LogMessage "Alias set successfully" -Level SUCCESS
+                    } else {
+                        Write-LogMessage "Failed to set alias" -Level WARNING
+                    }
+                    
+                    Start-Sleep -Milliseconds 500
+                }
                 
                 # Then process tags for this address book
                 if ($addressBookObj.tags -and $addressBookObj.tags.Count -gt 0) {
@@ -350,11 +403,6 @@ try {
                             $params = @{
                                 "address_book_name" = $addressBookObj.addressBook
                                 "address_book_tag" = $tagObj.tag
-                            }
-                            
-                            # Add alias if provided (requires server Pro >=1.5.8 and client >=1.4.1)
-                            if ($tagObj.alias) {
-                                $params["address_book_alias"] = $tagObj.alias
                             }
                             
                             $success = Invoke-RustDeskAssignment `
